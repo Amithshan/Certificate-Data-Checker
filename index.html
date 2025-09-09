@@ -325,7 +325,7 @@ function validateNic(val) {
     const suffix = document.getElementById('fileSuffix').value.trim();
     const hours = document.getElementById('hours').value;
     const medium = document.getElementById('medium').value;
-    const fullFileNumber = `${prefix}${hours}${medium}/${suffix}`;
+    const fullFileNumber = `${prefix}${hours}${medium}-${suffix}/`;
 
     const metadataRows = [
       ["Start Date", startDate],
@@ -363,3 +363,4 @@ function validateNic(val) {
 
 </body>
 </html>
+
