@@ -13,6 +13,8 @@
     .invalid { background-color: #f8d7da !important; color: #721c24 !important; }
     .corrected { background-color: #d1e7dd !important; color: #0f5132 !important; }
     td[contenteditable="true"]:focus { outline: 2px solid #007bff; background-color: #e7f1ff; }
+    #headerErrorBox { display:none; }
+    #headerErrorBox ul { margin-bottom: 0; }
   </style>
 </head>
 <body>
@@ -104,6 +106,19 @@
     </div>
   </div>
 
+  <!-- Header structure error -->
+  <div id="headerErrorBox" class="alert alert-danger">
+    <strong>⚠ Invalid file structure.</strong>
+    <div id="headerErrorDetail" class="mt-2"></div>
+    <div class="mt-2">
+      Please use the
+      <a href="https://docs.google.com/spreadsheets/d/1QoEN92c1SUm2kLIbrwgTmlBAoWQu_nID/export?format=xlsx" download>
+        default template
+      </a>
+      and re-upload before finalizing certificate data.
+    </div>
+  </div>
+
   <!-- Table and Buttons -->
   <div class="table-responsive mb-3" style="max-height: 60vh;">
     <table id="excelTable" class="table table-bordered table-striped table-sm d-none" spellcheck="false">
@@ -117,9 +132,14 @@
 </div>
 
 <script>
-  let titleCol = 1, nameCol = 2, nicCol = 5;
+  // Fixed column positions per the required template: Reg No, Title, Name with initials, NIC Number, ...
+  const REG_NO_COL = 0;
+  let titleCol = 1, nameCol = 2, nicCol = 3;
   const editableCols = [titleCol, nameCol, nicCol];
-  const allowedTitles = ['Mr.', 'Ms.', 'Miss', 'Mrs.', 'Rev.', 'Ven.', 'St.', 'Dr.'];
+  const allowedTitles = ['Mr.', 'Ms.', 'Miss', 'Mrs.', 'Rev.', 'Ven.', 'St.', 'Dr.', 'Prof.', 'Sis.'];
+
+  // Required first-4 headers (normalized) in exact order
+  const REQUIRED_HEADERS = ['reg no', 'title', 'name with initials', 'nic number'];
 
   // Strict name validation regex:
   // - Initials: one or more uppercase letters followed by dot and space, e.g. "T. A. S. "
@@ -127,6 +147,13 @@
   // - No uppercase inside surname words except first letter
   // Example accepted: "T. A. S. De Silva"
   const nameRegex = /^((?:[A-Z]\.\s)+)?([A-Z][a-zjk]+(?:\s[A-Z][a-zjk]+)*)$/;
+
+  function normalizeHeader(h) {
+    return String(h || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, ' ');
+  }
 
   function formatDate(dateStr) {
     const d = new Date(dateStr);
@@ -139,8 +166,8 @@
 
   function validateTitle(val) {
     const trimmed = val.trim();
-    if (trimmed.toLowerCase() === 'miss') return true;
-    return allowedTitles.some(title => title.toLowerCase() === trimmed.toLowerCase());
+    // Exact, case-sensitive match: enforces correct capitalization (e.g. "Mr." valid, "mr." or "MR." invalid)
+    return allowedTitles.includes(trimmed);
   }
 
   function validateName(val) {
@@ -149,13 +176,12 @@
     return nameRegex.test(trimmed);
   }
 
-function validateNic(val) {
-  const cleanVal = val.replace(/^'+/, '').trim();
-  const isOldNIC = /^\d{9}[VX]$/.test(cleanVal); // 9 digits + V/X
-  const isNewNIC = /^\d{12}$/.test(cleanVal);   // 12 digits only
-  return isOldNIC || isNewNIC;
-}
-
+  function validateNic(val) {
+    const cleanVal = val.replace(/^'+/, '').trim();
+    const isOldNIC = /^\d{9}[VX]$/.test(cleanVal); // 9 digits + V/X
+    const isNewNIC = /^\d{12}$/.test(cleanVal);   // 12 digits only
+    return isOldNIC || isNewNIC;
+  }
 
   const prevValidityMap = new WeakMap();
 
@@ -234,6 +260,35 @@ function validateNic(val) {
 
   document.getElementById('venueManual').addEventListener('input', checkMetadataFilled);
 
+  function showHeaderError(detailHtml) {
+    const box = document.getElementById('headerErrorBox');
+    const detail = document.getElementById('headerErrorDetail');
+    detail.innerHTML = detailHtml;
+    box.style.display = 'block';
+
+    // Hide table + download controls, since data cannot be trusted
+    document.getElementById('excelTable').classList.add('d-none');
+    document.getElementById('errorMessage').style.display = 'none';
+    document.getElementById('downloadExcel').style.display = 'none';
+  }
+
+  function hideHeaderError() {
+    document.getElementById('headerErrorBox').style.display = 'none';
+  }
+
+  // Scans the sheet for a row whose first 4 cells match the required headers,
+  // in order: Reg No, Title, Name with initials, NIC Number.
+  // Returns { rowIndex, headers } on success, or null if no such row exists.
+  function findValidHeaderRow(data) {
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i] || [];
+      if (row.length < REQUIRED_HEADERS.length) continue;
+      const matches = REQUIRED_HEADERS.every((expected, idx) => normalizeHeader(row[idx]) === expected);
+      if (matches) return { rowIndex: i, headers: row };
+    }
+    return null;
+  }
+
   function renderTable(headers, rows) {
     const table = document.getElementById('excelTable');
     const thead = table.querySelector('thead');
@@ -273,30 +328,46 @@ function validateNic(val) {
     const file = e.target.files[0];
     if (!file) return;
 
+    hideHeaderError();
+
     const reader = new FileReader();
     reader.onload = evt => {
-      const workbook = XLSX.read(evt.target.result, { type: 'binary' });
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-
-      const keyHeaders = ['title', 'name', 'nic'];
-      let startIndex = 0;
-      for (let i = 0; i < data.length; i++) {
-        const row = data[i].map(cell => String(cell || '').toLowerCase());
-        if (keyHeaders.every(k => row.some(cell => cell.includes(k)))) {
-          startIndex = i;
-          break;
-        }
+      let data;
+      try {
+        const workbook = XLSX.read(evt.target.result, { type: 'binary' });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+      } catch (err) {
+        showHeaderError('The uploaded file could not be read as a valid Excel file.');
+        e.target.value = '';
+        return;
       }
 
-      const headerRow = data[startIndex].map(h => String(h).toLowerCase());
-      titleCol = headerRow.findIndex(h => h.includes('title'));
-      nameCol = headerRow.findIndex(h => h.includes('name'));
-      nicCol = headerRow.findIndex(h => h.includes('nic'));
+      const match = findValidHeaderRow(data);
+
+      if (!match) {
+        showHeaderError(
+          `The first 4 columns of the sheet must be exactly, in order:<br>
+           <ul>
+             <li><strong>Reg No</strong></li>
+             <li><strong>Title</strong></li>
+             <li><strong>Name with initials</strong></li>
+             <li><strong>NIC Number</strong></li>
+           </ul>
+           This structure was not found anywhere in the uploaded file.`
+        );
+        e.target.value = '';
+        return;
+      }
+
+      // Lock column roles to the fixed template positions
+      titleCol = 1;
+      nameCol = 2;
+      nicCol = 3;
       editableCols.length = 0;
       editableCols.push(titleCol, nameCol, nicCol);
 
-      renderTable(data[startIndex], data.slice(startIndex + 1));
+      renderTable(match.headers, data.slice(match.rowIndex + 1));
     };
     reader.readAsBinaryString(file);
   });
@@ -332,7 +403,6 @@ function validateNic(val) {
     const hours = document.getElementById('hours').value;
     const medium = document.getElementById('medium').value;
     const fullFileNumber = `${prefix}${hours}${medium}-${suffix}`;
-
 
     const metadataRows = [
       ["Start Date", startDate],
@@ -370,5 +440,3 @@ function validateNic(val) {
 
 </body>
 </html>
-
-
