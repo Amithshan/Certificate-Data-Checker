@@ -147,27 +147,67 @@
 </div>
 
 <script>
-  // Fixed column positions per the required template: Reg No, Title, Name with initials, NIC Number, ...
+  /* ============================================================
+     Disable right-click + common DevTools shortcuts
+     ============================================================ */
+  // Disable right-click context menu
+  document.addEventListener('contextmenu', function (e) {
+    e.preventDefault();
+    return false;
+  });
+
+  // Block common keyboard shortcuts used to open DevTools / view source
+  document.addEventListener('keydown', function (e) {
+    // F12
+    if (e.key === 'F12' || e.keyCode === 123) {
+      e.preventDefault();
+      return false;
+    }
+    // Ctrl+Shift+I / Ctrl+Shift+J / Ctrl+Shift+C (DevTools)
+    if (e.ctrlKey && e.shiftKey && ['I', 'J', 'C'].includes(e.key.toUpperCase())) {
+      e.preventDefault();
+      return false;
+    }
+    // Ctrl+U (View Source)
+    if (e.ctrlKey && e.key.toUpperCase() === 'U') {
+      e.preventDefault();
+      return false;
+    }
+    // Ctrl+S (Save page) - optional
+    if (e.ctrlKey && e.key.toUpperCase() === 'S') {
+      e.preventDefault();
+      return false;
+    }
+  });
+
+  // Disable text selection of non-editable areas (keeps contenteditable cells working)
+  document.addEventListener('selectstart', function (e) {
+    if (!e.target.isContentEditable) {
+      e.preventDefault();
+      return false;
+    }
+  });
+
+  // Disable dragging (prevents drag-to-inspect tricks)
+  document.addEventListener('dragstart', function (e) {
+    e.preventDefault();
+    return false;
+  });
+
+  /* ============================================================
+     Original validator logic (unchanged)
+     ============================================================ */
   const REG_NO_COL = 0;
   let titleCol = 1, nameCol = 2, nicCol = 3;
   const editableCols = [titleCol, nameCol, nicCol];
   const allowedTitles = ['Mr.', 'Ms.', 'Miss', 'Mrs.', 'Rev.', 'Ven.', 'St.', 'Dr.', 'Prof.', 'Sis.'];
 
-  // Required first-4 headers (normalized) in exact order
   const REQUIRED_HEADERS = ['reg no', 'title', 'name with initials', 'nic number'];
 
-  // Strict name validation regex:
-  // - Initials: one or more uppercase letters followed by dot and space, e.g. "T. A. S. "
-  // - Surname: one or more words, each starting uppercase letter, followed by lowercase letters (j/k allowed)
-  // - No uppercase inside surname words except first letter
-  // Example accepted: "T. A. S. De Silva"
   const nameRegex = /^((?:[A-Z]\.\s)+)?([A-Z][a-zjk]+(?:\s[A-Z][a-zjk]+)*)$/;
 
   function normalizeHeader(h) {
-    return String(h || '')
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, ' ');
+    return String(h || '').trim().toLowerCase().replace(/\s+/g, ' ');
   }
 
   function formatDate(dateStr) {
@@ -181,7 +221,6 @@
 
   function validateTitle(val) {
     const trimmed = val.trim();
-    // Exact, case-sensitive match: enforces correct capitalization (e.g. "Mr." valid, "mr." or "MR." invalid)
     return allowedTitles.includes(trimmed);
   }
 
@@ -193,8 +232,8 @@
 
   function validateNic(val) {
     const cleanVal = val.replace(/^'+/, '').trim();
-    const isOldNIC = /^\d{9}[VX]$/.test(cleanVal); // 9 digits + V/X
-    const isNewNIC = /^\d{12}$/.test(cleanVal);   // 12 digits only
+    const isOldNIC = /^\d{9}[VX]$/.test(cleanVal);
+    const isNewNIC = /^\d{12}$/.test(cleanVal);
     return isOldNIC || isNewNIC;
   }
 
@@ -261,7 +300,6 @@
     return selected;
   }
 
-  // Metadata change listeners
   document.querySelectorAll('#startDate, #endDate, #filePrefix, #fileSuffix, #hours, #medium').forEach(el => {
     el.addEventListener('input', checkMetadataFilled);
     el.addEventListener('change', checkMetadataFilled);
@@ -281,7 +319,6 @@
     detail.innerHTML = detailHtml;
     box.style.display = 'block';
 
-    // Hide table + download controls, since data cannot be trusted
     document.getElementById('excelTable').classList.add('d-none');
     document.getElementById('errorMessage').style.display = 'none';
     document.getElementById('downloadExcel').style.display = 'none';
@@ -291,9 +328,6 @@
     document.getElementById('headerErrorBox').style.display = 'none';
   }
 
-  // Scans the sheet for a row whose first 4 cells match the required headers,
-  // in order: Reg No, Title, Name with initials, NIC Number.
-  // Returns { rowIndex, headers } on success, or null if no such row exists.
   function findValidHeaderRow(data) {
     for (let i = 0; i < data.length; i++) {
       const row = data[i] || [];
@@ -320,7 +354,6 @@
     thead.appendChild(headerRow);
 
     rows.forEach(row => {
-      // Skip empty rows
       if (row.every(cell => cell === null || cell === undefined || cell === '')) return;
 
       const tr = document.createElement('tr');
@@ -375,7 +408,6 @@
         return;
       }
 
-      // Lock column roles to the fixed template positions
       titleCol = 1;
       nameCol = 2;
       nicCol = 3;
@@ -448,7 +480,6 @@
     XLSX.writeFile(wb, `${fullFileNumber.replace(/[\\/:"*?<>|]+/g, '_')}.xlsx`);
   });
 
-  // Initialize metadata check on page load
   checkMetadataFilled();
 
 </script>
